@@ -1,10 +1,10 @@
-
 #include<iostream>
 #include<string>
 #include<vector>
 #include<bitset>
 #include<fstream>
 #include<cstdint>
+
 using namespace std;
 
 #define MemSize 1000 // memory size, in reality, the memory size should be 2^32, but for this lab, for the space resaon, we keep it as this large number, but the memory is still 32-bit addressable.
@@ -73,7 +73,7 @@ class InsMem
             ifstream imem;
 			string line;
 			int i=0;
-			imem.open(ioDir + "\\imem.txt");
+			imem.open(ioDir + "\\input\\imem.txt");
 			if (imem.is_open())
 			{
 				while (getline(imem,line))
@@ -88,14 +88,16 @@ class InsMem
 
 		bitset<32> readInstr(bitset<32> ReadAddress) {    
 			int addr = (int)(ReadAddress.to_ulong());
-			bitset<32> instruction;
+            bitset<32> instruction;
+    
+    // Combine four 8-bit chunks from memory to form a 32-bit instruction
+            for (int i = 0; i < 4; i++) 
+            {
+                instruction <<= 8;
+                instruction |= bitset<32>(IMem[addr + i].to_ulong());
+            }
 
-			for(int i = 0; i<4; i++)
-			{
-				instruction<<=8;
-				instruction |= bitset<32>(IMem[addr+i].to_ulong());
-			}
-			return instruction;
+            return instruction;
 		}     
       
     private:
@@ -108,11 +110,11 @@ class DataMem
 		string id, opFilePath, ioDir;
         DataMem(string name, string ioDir) : id{name}, ioDir{ioDir} {
             DMem.resize(MemSize);
-			opFilePath = ioDir + "\\" + name + "_DMEMResult.txt";
+			opFilePath = ioDir + "\\outputs\\" + name + "_DMEMResult.txt";
             ifstream dmem;
             string line;
             int i=0;
-            dmem.open(ioDir + "\\dmem.txt");
+            dmem.open(ioDir + "\\input\\dmem.txt");
             if (dmem.is_open())
             {
                 while (getline(dmem,line))
@@ -127,23 +129,24 @@ class DataMem
 		
         bitset<32> readDataMem(bitset<32> Address) {	
 			int addr = Address.to_ulong();
-			bitset<32> data;
-
-			for(int i=0; i<4; i++)
-			{
-				data<<=8;
-				data|=bitset<32>(DMem[addr+i].to_ulong());
-			}
-			return data;
+            bitset<32> data;
+    
+            for (int i = 0; i < 4; i++) {
+                data <<= 8;
+                data |= bitset<32>(DMem[addr + i].to_ulong());
+            }
+    
+            return data;
 		}
             
         void writeDataMem(bitset<32> Address, bitset<32> WriteData) {
 			int addr = Address.to_ulong();
-			for(int i =3; i>=0; i--)
-			{
-				DMem[addr+i] = bitset<8>(WriteData.to_ulong() & 0xFF);
-			}	
-		}   
+    
+            for (int i = 3; i >= 0; i--) {
+                DMem[addr + i] = bitset<8>(WriteData.to_ulong() & 0xFF);
+                WriteData >>= 8;
+            }
+        }   
                      
         void outputDataMem() {
             ofstream dmemout;
@@ -167,7 +170,8 @@ class RegisterFile
 {
     public:
 		string outputFile;
-     	RegisterFile(string ioDir): outputFile {ioDir + "RFResult.txt"} {
+     	RegisterFile(string ioDir, string identifier) {
+			outputFile = ioDir + "\\outputs\\"+ identifier + "RFResult.txt";
 			Registers.resize(32);  
 			Registers[0] = bitset<32> (0);  
         }
@@ -177,12 +181,11 @@ class RegisterFile
         }
     
         void writeRF(bitset<5> Reg_addr, bitset<32> Wrt_reg_data) {
-			if(Reg_addr.to_ulong()!=0)
-			{
-				Registers[Reg_addr.to_ulong()] = Wrt_reg_data;
-			}
-		}
-
+            if (Reg_addr.to_ulong() != 0)
+            {  // Register 0 is always hard-wired to zero
+                Registers[Reg_addr.to_ulong()] = Wrt_reg_data;
+            }
+        }
 		 
 		void outputRF(int cycle) {
 			ofstream rfout;
@@ -197,31 +200,11 @@ class RegisterFile
 				{
 					rfout << Registers[j]<<endl;
 				}
+				
 			}
 			else cout<<"Unable to open RF output file."<<endl;
 			rfout.close();               
-		}
-		/*custom code here*/
-
-		 void testRegisterFile() {
-    RegisterFile rf("register_file_dump_addedbyme");
-
-    // Test writing to register 1
-    bitset<5> reg1(1);
-    bitset<32> value1(12345);
-    rf.writeRF(reg1, value1);
-
-    // Test reading from register 1
-    bitset<32> readValue = rf.readRF(reg1);
-    cout << "Register 1 value: " << readValue << endl;
-
-    // Ensure register 0 always reads as 0, even after write
-    bitset<5> reg0(0);
-    rf.writeRF(reg0, bitset<32>(54321));
-    readValue = rf.readRF(reg0);
-    cout << "Register 0 value (should be 0): " << readValue << endl;
-}
-/*custom code ends here*/
+		} 
 			
 	private:
 		vector<bitset<32> >Registers;
@@ -237,7 +220,7 @@ class Core {
 		InsMem ext_imem;
 		DataMem ext_dmem;
 		
-		Core(string ioDir, InsMem &imem, DataMem &dmem): myRF(ioDir), ioDir{ioDir}, ext_imem {imem}, ext_dmem {dmem} {}
+		Core(string ioDir, string identifier, InsMem &imem, DataMem &dmem): myRF(ioDir, identifier), ioDir{ioDir}, ext_imem {imem}, ext_dmem {dmem} {}
 
 		virtual void step() {}
 
@@ -246,7 +229,7 @@ class Core {
 
 class SingleStageCore : public Core {
 	public:
-		SingleStageCore(string ioDir, InsMem &imem, DataMem &dmem): Core(ioDir + "\\SS_", imem, dmem), opFilePath(ioDir + "\\StateResult_SS.txt") {}
+		SingleStageCore(string ioDir, InsMem &imem, DataMem &dmem): Core(ioDir, "SS_", imem, dmem), opFilePath(ioDir + "\\outputs\\StateResult_SS.txt") {}
 
 		void step() {
 			/* Your implementation*/
@@ -260,7 +243,7 @@ class SingleStageCore : public Core {
 			
 			state = nextState; // The end of the cycle and updates the current state with the values calculated in this cycle
 			cycle++;
-		}
+        }
 
 		void printState(stateStruct state, int cycle) {
     		ofstream printstate;
@@ -284,7 +267,7 @@ class SingleStageCore : public Core {
 class FiveStageCore : public Core{
 	public:
 		
-		FiveStageCore(string ioDir, InsMem &imem, DataMem &dmem): Core(ioDir + "\\FS_", imem, dmem), opFilePath(ioDir + "\\StateResult_FS.txt") {}
+		FiveStageCore(string ioDir, InsMem &imem, DataMem &dmem): Core(ioDir, "FS_", imem, dmem), opFilePath(ioDir + "\\outputs\\StateResult_FS.txt") {}
 
 		void step() {
 			/* Your implementation */
