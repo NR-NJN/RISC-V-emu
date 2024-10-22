@@ -1,9 +1,10 @@
+
 #include<iostream>
 #include<string>
 #include<vector>
 #include<bitset>
 #include<fstream>
-
+#include<cstdint>
 using namespace std;
 
 #define MemSize 1000 // memory size, in reality, the memory size should be 2^32, but for this lab, for the space resaon, we keep it as this large number, but the memory is still 32-bit addressable.
@@ -86,8 +87,15 @@ class InsMem
 		}
 
 		bitset<32> readInstr(bitset<32> ReadAddress) {    
-			// read instruction memory
-			// return bitset<32> val
+			int addr = (int)(ReadAddress.to_ulong());
+			bitset<32> instruction;
+
+			for(int i = 0; i<4; i++)
+			{
+				instruction<<=8;
+				instruction |= bitset<32>(IMem[addr+i].to_ulong());
+			}
+			return instruction;
 		}     
       
     private:
@@ -118,13 +126,24 @@ class DataMem
         }
 		
         bitset<32> readDataMem(bitset<32> Address) {	
-			// read data memory
-			// return bitset<32> val
+			int addr = Address.to_ulong();
+			bitset<32> data;
+
+			for(int i=0; i<4; i++)
+			{
+				data<<=8;
+				data|=bitset<32>(DMem[addr+i].to_ulong());
+			}
+			return data;
 		}
             
         void writeDataMem(bitset<32> Address, bitset<32> WriteData) {
-			// write into memory
-        }   
+			int addr = Address.to_ulong();
+			for(int i =3; i>=0; i--)
+			{
+				DMem[addr+i] = bitset<8>(WriteData.to_ulong() & 0xFF);
+			}	
+		}   
                      
         void outputDataMem() {
             ofstream dmemout;
@@ -154,12 +173,16 @@ class RegisterFile
         }
 	
         bitset<32> readRF(bitset<5> Reg_addr) {   
-            // Fill in
+            return Registers[Reg_addr.to_ulong()];
         }
     
         void writeRF(bitset<5> Reg_addr, bitset<32> Wrt_reg_data) {
-            // Fill in
-        }
+			if(Reg_addr.to_ulong()!=0)
+			{
+				Registers[Reg_addr.to_ulong()] = Wrt_reg_data;
+			}
+		}
+
 		 
 		void outputRF(int cycle) {
 			ofstream rfout;
@@ -177,7 +200,28 @@ class RegisterFile
 			}
 			else cout<<"Unable to open RF output file."<<endl;
 			rfout.close();               
-		} 
+		}
+		/*custom code here*/
+
+		 void testRegisterFile() {
+    RegisterFile rf("register_file_dump_addedbyme");
+
+    // Test writing to register 1
+    bitset<5> reg1(1);
+    bitset<32> value1(12345);
+    rf.writeRF(reg1, value1);
+
+    // Test reading from register 1
+    bitset<32> readValue = rf.readRF(reg1);
+    cout << "Register 1 value: " << readValue << endl;
+
+    // Ensure register 0 always reads as 0, even after write
+    bitset<5> reg0(0);
+    rf.writeRF(reg0, bitset<32>(54321));
+    readValue = rf.readRF(reg0);
+    cout << "Register 0 value (should be 0): " << readValue << endl;
+}
+/*custom code ends here*/
 			
 	private:
 		vector<bitset<32> >Registers;
