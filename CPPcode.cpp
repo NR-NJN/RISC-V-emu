@@ -98,7 +98,7 @@ class InsMem
             }
 
             return instruction;
-		}     
+		}       
       
     private:
         vector<bitset<8> > IMem;     
@@ -228,41 +228,80 @@ class Core {
 };
 
 class SingleStageCore : public Core {
-	public:
-		SingleStageCore(string ioDir, InsMem &imem, DataMem &dmem): Core(ioDir, "SS_", imem, dmem), opFilePath(ioDir + "\\outputs\\StateResult_SS.txt") {}
+public:
+    SingleStageCore(string ioDir, InsMem &imem, DataMem &dmem) 
+        : Core(ioDir, "SS_", imem, dmem), opFilePath(ioDir + "\\outputs\\StateResult_SS.txt") {
+        state.IF.PC = 0; // Initialize PC to 0
+        state.IF.nop = false;
+    }
 
-		void step() {
-			/* Your implementation*/
+    void step() {
+        // Fetch instruction
+        state.ID.Instr = ext_imem.readInstr(state.IF.PC);
+        cout << "Cycle " << cycle << ": Fetched Instruction: " << state.ID.Instr << endl;
+        if (state.ID.Instr.to_ulong() == 0xFFFFFFFF) { // NOP or HALT condition
+            state.IF.nop = true;
+            halted = true;
+        } else {
+            // Decode instruction
+            bitset<7> opcode = bitset<7>((state.ID.Instr.to_ulong() & 0x7F)); // Extract opcode (bits 0-6)
+            bitset<5> rd = bitset<5>((state.ID.Instr.to_ulong() >> 7) & 0x1F); // Extract rd (bits 7-11)
+            bitset<3> funct3 = bitset<3>((state.ID.Instr.to_ulong() >> 12) & 0x7); // Extract funct3 (bits 12-14)
+            bitset<5> rs1 = bitset<5>((state.ID.Instr.to_ulong() >> 15) & 0x1F); // Extract rs1 (bits 15-19)
+            bitset<5> rs2 = bitset<5>((state.ID.Instr.to_ulong() >> 20) & 0x1F); // Extract rs2 (bits 20-24)
+            bitset<7> funct7 = bitset<7>((state.ID.Instr.to_ulong() >> 25) & 0x7F); // Extract funct7 (bits 25-31)
+            
+			 cout << "Decoded Fields - Opcode: " << opcode << ", rd: " << rd << ", funct3: " << funct3
+             << ", rs1: " << rs1 << ", rs2: " << rs2 << ", funct7: " << funct7 << endl;
+            // Check if this is an ADD instruction (opcode = 0x33, funct3 = 0x0, funct7 = 0x00)
+            if (opcode == 0x33 && funct3 == 0x0 && funct7 == 0x00) {
+                // ADD operation: Rd = Rs1 + Rs2
+                bitset<32> val1 = myRF.readRF(rs1); // Read register Rs1
+                bitset<32> val2 = myRF.readRF(rs2); // Read register Rs2
 
-			halted = true;
-			if (state.IF.nop)
-				halted = true;
-			
-			myRF.outputRF(cycle); // dump RF
-			printState(nextState, cycle); //print states after executing cycle 0, cycle 1, cycle 2 ... 
-			
-			state = nextState; // The end of the cycle and updates the current state with the values calculated in this cycle
-			cycle++;
+				cout << "Cycle " << cycle << ": ADD operation - rs1 value: " << val1.to_ulong()
+                 << ", rs2 value: " << val2.to_ulong() << endl;
+
+                bitset<32> result = bitset<32>(val1.to_ulong() + val2.to_ulong()); // Perform addition
+
+                // Write result to destination register (Rd)
+                myRF.writeRF(rd, result);
+
+				cout << "Writing to register rd: " << rd.to_ulong() << " with value: " << result.to_ulong() << endl;
+            }
+            
+            // Increment PC
+            state.IF.PC = bitset<32>(state.IF.PC.to_ulong() + 4);
         }
 
-		void printState(stateStruct state, int cycle) {
-    		ofstream printstate;
-			if (cycle == 0)
-				printstate.open(opFilePath, std::ios_base::trunc);
-			else 
-    			printstate.open(opFilePath, std::ios_base::app);
-    		if (printstate.is_open()) {
-    		    printstate<<"State after executing cycle:\t"<<cycle<<endl; 
+        // Dump RF and print the state for this cycle
+        myRF.outputRF(cycle);
+        printState(nextState, cycle);
 
-    		    printstate<<"IF.PC:\t"<<state.IF.PC.to_ulong()<<endl;
-    		    printstate<<"IF.nop:\t"<<state.IF.nop<<endl;
-    		}
-    		else cout<<"Unable to open SS StateResult output file." << endl;
-    		printstate.close();
-		}
-	private:
-		string opFilePath;
+        // Update states for the next cycle
+        state = nextState;
+        cycle++;
+    }
+
+    void printState(stateStruct state, int cycle) {
+        ofstream printstate;
+        if (cycle == 0)
+            printstate.open(opFilePath, std::ios_base::trunc);
+        else 
+            printstate.open(opFilePath, std::ios_base::app);
+        if (printstate.is_open()) {
+            printstate << "State after executing cycle:\t" << cycle << endl;
+            printstate << "IF.PC:\t" << state.IF.PC.to_ulong() << endl;
+            printstate << "IF.nop:\t" << state.IF.nop << endl;
+        }
+        else cout << "Unable to open SS StateResult output file." << endl;
+        printstate.close();
+    }
+
+private:
+    string opFilePath;
 };
+
 
 class FiveStageCore : public Core{
 	public:
