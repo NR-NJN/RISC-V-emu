@@ -77,7 +77,8 @@ class InsMem
 			if (imem.is_open())
 			{
 				while (getline(imem,line))
-				{      
+				{
+                    cout << "Reading byte " << i << ": " << line << endl;      
 					IMem[i] = bitset<8>(line);
 					i++;
 				}                    
@@ -87,19 +88,18 @@ class InsMem
 		}
 
 		bitset<32> readInstr(bitset<32> ReadAddress) {    
-			int addr = (int)(ReadAddress.to_ulong());
-            bitset<32> instruction;
-    
-    // Combine four 8-bit chunks from memory to form a 32-bit instruction
-            for (int i = 0; i < 4; i++) 
-            {
-                instruction <<= 8;
-                instruction |= bitset<32>(IMem[addr + i].to_ulong());
-            }
+			int addr = ReadAddress.to_ulong();
+            bitset<32> instr; // To hold the final instruction
 
-            return instruction;
-		}       
-      
+            // Loop to read four bytes (little-endian format)
+            for (int i = 0; i < 4; ++i) {
+                instr <<= 8; // Shift left by 8 bits to make space for the next byte
+                instr |= IMem[addr + i].to_ulong(); // Read each byte in little-endian order
+            }
+            
+            cout << "Fetched instruction at address " << addr << ": " << instr << endl;
+            return instr;      
+        }
     private:
         vector<bitset<8> > IMem;     
 };
@@ -171,13 +171,22 @@ class RegisterFile
     public:
 		string outputFile;
      	RegisterFile(string ioDir, string identifier) {
+            outputFile.clear();
 			outputFile = ioDir + "\\outputs\\"+ identifier + "RFResult.txt";
+            cout << "Initializing RegisterFile with path: " << outputFile << endl;
 			Registers.resize(32);  
-			Registers[0] = bitset<32> (0);  
+			Registers[0] = bitset<32> (0);
         }
 	
-        bitset<32> readRF(bitset<5> Reg_addr) {   
+        bitset<32> readRF(bitset<5> Reg_addr) {  
+
+            cout << "Reading register at address: " << Reg_addr.to_ulong() 
+            << " with value: " << Registers[Reg_addr.to_ulong()] << endl;
+
             return Registers[Reg_addr.to_ulong()];
+
+            
+
         }
     
         void writeRF(bitset<5> Reg_addr, bitset<32> Wrt_reg_data) {
@@ -233,54 +242,103 @@ public:
         : Core(ioDir, "SS_", imem, dmem), opFilePath(ioDir + "\\outputs\\StateResult_SS.txt") {
         state.IF.PC = 0; // Initialize PC to 0
         state.IF.nop = false;
+        numCycles = 0;
+        numInstructions = 0;
+        performanceFilePath = ioDir + "\\outputs\\PerformanceMetrics_Result.txt";
     }
 
     void step() {
-        // Fetch instruction
+        cout << "Reading instruction at PC: " << state.IF.PC.to_ulong() << endl;
         state.ID.Instr = ext_imem.readInstr(state.IF.PC);
-        cout << "Cycle " << cycle << ": Fetched Instruction: " << state.ID.Instr << endl;
-        if (state.ID.Instr.to_ulong() == 0xFFFFFFFF) { // NOP or HALT condition
-            state.IF.nop = true;
-            halted = true;
-        } else {
-            // Decode instruction
-            bitset<7> opcode = bitset<7>((state.ID.Instr.to_ulong() & 0x7F)); // Extract opcode (bits 0-6)
-            bitset<5> rd = bitset<5>((state.ID.Instr.to_ulong() >> 7) & 0x1F); // Extract rd (bits 7-11)
-            bitset<3> funct3 = bitset<3>((state.ID.Instr.to_ulong() >> 12) & 0x7); // Extract funct3 (bits 12-14)
-            bitset<5> rs1 = bitset<5>((state.ID.Instr.to_ulong() >> 15) & 0x1F); // Extract rs1 (bits 15-19)
-            bitset<5> rs2 = bitset<5>((state.ID.Instr.to_ulong() >> 20) & 0x1F); // Extract rs2 (bits 20-24)
-            bitset<7> funct7 = bitset<7>((state.ID.Instr.to_ulong() >> 25) & 0x7F); // Extract funct7 (bits 25-31)
-            
-			 cout << "Decoded Fields - Opcode: " << opcode << ", rd: " << rd << ", funct3: " << funct3
-             << ", rs1: " << rs1 << ", rs2: " << rs2 << ", funct7: " << funct7 << endl;
-            // Check if this is an ADD instruction (opcode = 0x33, funct3 = 0x0, funct7 = 0x00)
-            if (opcode == 0x33 && funct3 == 0x0 && funct7 == 0x00) {
-                // ADD operation: Rd = Rs1 + Rs2
-                bitset<32> val1 = myRF.readRF(rs1); // Read register Rs1
-                bitset<32> val2 = myRF.readRF(rs2); // Read register Rs2
+        cout << "Instruction read: " << state.ID.Instr << endl;
+    
+    if (state.ID.Instr.to_ulong() == 0xFFFFFFFF) {
+        state.IF.nop = true;
+        halted = true;
+        return;
+    }
 
-				cout << "Cycle " << cycle << ": ADD operation - rs1 value: " << val1.to_ulong()
-                 << ", rs2 value: " << val2.to_ulong() << endl;
+    /* -------- ID stage -------- */
+    // Extract instruction fields
+    uint32_t instr = state.ID.Instr.to_ulong();
+    bitset<7> opcode(instr & 0x7F);
+    bitset<5> rd((instr >> 7) & 0x1F);
+    bitset<3> funct3((instr >> 12) & 0x7);
+    bitset<5> rs1((instr >> 15) & 0x1F);
+    bitset<5> rs2((instr >> 20) & 0x1F);
+    bitset<7> funct7((instr >> 25) & 0x7F);
 
-                bitset<32> result = bitset<32>(val1.to_ulong() + val2.to_ulong()); // Perform addition
+    cout << "Reading from registers - rs1: " << rs1.to_ulong() 
+         << " rs2: " << rs2.to_ulong() << endl;
 
-                // Write result to destination register (Rd)
-                myRF.writeRF(rd, result);
+    // Read register values
+    bitset<32> rs1_val = myRF.readRF(rs1);
+    bitset<32> rs2_val = myRF.readRF(rs2);
 
-				cout << "Writing to register rd: " << rd.to_ulong() << " with value: " << result.to_ulong() << endl;
+    cout << "Register values - rs1_val: " << rs1_val.to_string() 
+         << " rs2_val: " << rs2_val.to_string() << endl;
+
+    /* -------- EX stage -------- */
+    bitset<32> result;
+    bool write_reg = false;
+
+    // R-type instructions
+    if (opcode == 0b0110011) {
+        write_reg = true;
+        cout << "rs1_val: " << rs1_val << ", rs2_val: " << rs2_val << endl;
+
+        if (funct3 == 0b000) {  // ADD/SUB
+            if (funct7 == 0b0000000) {  // ADD
+                result = bitset<32>(rs1_val.to_ulong() + rs2_val.to_ulong());
+                cout << "result (ADD): " << result << endl;
+            } else if (funct7 == 0b0100000) {  // SUB
+                result = bitset<32>(rs1_val.to_ulong() - rs2_val.to_ulong());
             }
-            
-            // Increment PC
-            state.IF.PC = bitset<32>(state.IF.PC.to_ulong() + 4);
+        
+
         }
+        else if (funct3 == 0b110) {  // OR
+            result = rs1_val | rs2_val;
+        }
+        else if (funct3 == 0b111) {  // AND
+            result = rs1_val & rs2_val;
+        }
+    }
+    // Load instructions
+    else if (opcode == 0b0000011) {
+        if (funct3 == 0b010) {  // LW
+            int32_t imm = ((instr >> 20) & 0xFFF);
+            // Sign extend
+            if (imm & 0x800) imm |= 0xFFFFF000;
+            uint32_t addr = rs1_val.to_ulong() + imm;
+            result = ext_dmem.readDataMem(bitset<32>(addr));
+            write_reg = true;
+        }
+    }
+    // Store instructions
+    else if (opcode == 0b0100011) {
+        if (funct3 == 0b010) {  // SW
+            int32_t imm = ((instr >> 25) & 0xFE0) | ((instr >> 7) & 0x1F);
+            // Sign extend
+            if (imm & 0x800) imm |= 0xFFFFF000;
+            uint32_t addr = rs1_val.to_ulong() + imm;
+            ext_dmem.writeDataMem(bitset<32>(addr), rs2_val);
+        }
+    }
 
-        // Dump RF and print the state for this cycle
-        myRF.outputRF(cycle);
-        printState(nextState, cycle);
+    /* -------- WB stage -------- */
+    if (write_reg && rd.to_ulong() != 0) {
+        myRF.writeRF(rd, result);
+    }
 
-        // Update states for the next cycle
-        state = nextState;
-        cycle++;
+    /* -------- PC Update -------- */
+    state.IF.PC = bitset<32>(state.IF.PC.to_ulong() + 4);
+
+    /* -------- State Update -------- */
+    myRF.outputRF(cycle);
+    printState(state, cycle);
+    nextState = state;
+    cycle++;
     }
 
     void printState(stateStruct state, int cycle) {
@@ -300,6 +358,9 @@ public:
 
 private:
     string opFilePath;
+    string performanceFilePath;
+    int numCycles;
+    int numInstructions;
 };
 
 
@@ -398,6 +459,12 @@ int main(int argc, char* argv[]) {
     if (argc == 1) {
         cout << "Enter path containing the memory files: ";
         cin >> ioDir;
+        ifstream test(ioDir + "\\input\\imem.txt");
+    if (!test.is_open()) {
+        cout << "Cannot open imem.txt file! Please check if path is correct." << endl;
+        return -1;
+}
+test.close();
     }
     else if (argc > 2) {
         cout << "Invalid number of arguments. Machine stopped." << endl;
