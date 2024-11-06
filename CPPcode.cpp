@@ -4,6 +4,7 @@
 #include<bitset>
 #include<fstream>
 #include<cstdint>
+#include<iomanip>
 
 using namespace std;
 
@@ -73,7 +74,7 @@ class InsMem
             ifstream imem;
 			string line;
 			int i=0;
-			imem.open(ioDir + "\\input\\imem.txt");
+			imem.open(ioDir + "\\imem.txt");
 			if (imem.is_open())
 			{
 				while (getline(imem,line))
@@ -97,7 +98,8 @@ class InsMem
                 instr |= IMem[addr + i].to_ulong(); // Read each byte in little-endian order
             }
             
-            cout << "Fetched instruction at address " << addr << ": " << instr << endl;
+             cout << "Fetched instruction at address " << addr << ": 0x" 
+         << hex << instr.to_ulong() << dec << endl;
             return instr;      
         }
     private:
@@ -110,11 +112,11 @@ class DataMem
 		string id, opFilePath, ioDir;
         DataMem(string name, string ioDir) : id{name}, ioDir{ioDir} {
             DMem.resize(MemSize);
-			opFilePath = ioDir + "\\outputs\\" + name + "_DMEMResult.txt";
+			opFilePath = ioDir + "\\"+name + "_DMEMResult.txt";
             ifstream dmem;
             string line;
             int i=0;
-            dmem.open(ioDir + "\\input\\dmem.txt");
+            dmem.open(ioDir + "\\dmem.txt");
             if (dmem.is_open())
             {
                 while (getline(dmem,line))
@@ -172,7 +174,7 @@ class RegisterFile
 		string outputFile;
      	RegisterFile(string ioDir, string identifier) {
             outputFile.clear();
-			outputFile = ioDir + "\\outputs\\"+ identifier + "RFResult.txt";
+			outputFile = ioDir + "\\"+ identifier + "RFResult.txt";
             cout << "Initializing RegisterFile with path: " << outputFile << endl;
 			Registers.resize(32);  
 			Registers[0] = bitset<32> (0);
@@ -239,24 +241,40 @@ class Core {
 class SingleStageCore : public Core {
 public:
     SingleStageCore(string ioDir, InsMem &imem, DataMem &dmem) 
-        : Core(ioDir, "SS_", imem, dmem), opFilePath(ioDir + "\\outputs\\StateResult_SS.txt") {
+        : Core(ioDir, "SS_", imem, dmem), opFilePath(ioDir + "\\StateResult_SS.txt") {
         state.IF.PC = 0; // Initialize PC to 0
         state.IF.nop = false;
         numCycles = 0;
         numInstructions = 0;
-        performanceFilePath = ioDir + "\\outputs\\PerformanceMetrics_Result.txt";
+        performanceFilePath = ioDir + "\\PerformanceMetrics_Result.txt";
     }
 
     void step() {
+
+        numCycles++;
+
+        if (state.IF.nop) {
+        halted = true;
+        return;
+    }
+
         cout << "Reading instruction at PC: " << state.IF.PC.to_ulong() << endl;
         state.ID.Instr = ext_imem.readInstr(state.IF.PC);
         cout << "Instruction read: " << state.ID.Instr << endl;
     
+    
     if (state.ID.Instr.to_ulong() == 0xFFFFFFFF) {
+        cout << "Halt instruction detected" << endl;
         state.IF.nop = true;
         halted = true;
+        // Print final state before returning
+        myRF.outputRF(cycle);
+        printState(state, cycle);
+        cycle++;
         return;
     }
+
+    numInstructions++;
 
     /* -------- ID stage -------- */
     // Extract instruction fields
@@ -293,6 +311,7 @@ public:
                 cout << "result (ADD): " << result << endl;
             } else if (funct7 == 0b0100000) {  // SUB
                 result = bitset<32>(rs1_val.to_ulong() - rs2_val.to_ulong());
+                cout << "result (SUB): " << result << endl;
             }
         
 
@@ -350,10 +369,30 @@ public:
         if (printstate.is_open()) {
             printstate << "State after executing cycle:\t" << cycle << endl;
             printstate << "IF.PC:\t" << state.IF.PC.to_ulong() << endl;
-            printstate << "IF.nop:\t" << state.IF.nop << endl;
+            printstate << "IF.nop:\t" << (state.IF.nop ? "true" : "false") << endl;
         }
         else cout << "Unable to open SS StateResult output file." << endl;
         printstate.close();
+    }
+
+    void outputPerformanceMetrics() {
+        ofstream perfout(performanceFilePath, std::ios_base::trunc);
+        if (perfout.is_open()) {
+            double CPI = (numInstructions > 0) ? static_cast<double>(numCycles) / numInstructions : 0;
+            double IPC = (numCycles > 0) ? static_cast<double>(numInstructions) / numCycles : 0;
+            
+            perfout << "Single Stage Core Performance Metrics\n";
+            perfout << "Number of cycles taken: " << numCycles << endl;
+            perfout << "Total Number of Instructions: " << numInstructions << endl;
+            perfout << "Cycles per instruction: " << fixed << setprecision(2) << CPI << endl;
+            perfout << "Instructions per cycle: " << fixed << setprecision(2) << IPC << endl;
+        } else {
+            cout << "Unable to open PerformanceMetrics_Result file." << endl;
+        }
+        perfout.close();
+    }
+    ~SingleStageCore() {
+        outputPerformanceMetrics();  
     }
 
 private:
@@ -367,7 +406,7 @@ private:
 class FiveStageCore : public Core{
 	public:
 		
-		FiveStageCore(string ioDir, InsMem &imem, DataMem &dmem): Core(ioDir, "FS_", imem, dmem), opFilePath(ioDir + "\\outputs\\StateResult_FS.txt") {}
+		FiveStageCore(string ioDir, InsMem &imem, DataMem &dmem): Core(ioDir, "FS_", imem, dmem), opFilePath(ioDir + "StateResult_FS.txt") {}
 
 		void step() {
 			/* Your implementation */
@@ -459,11 +498,14 @@ int main(int argc, char* argv[]) {
     if (argc == 1) {
         cout << "Enter path containing the memory files: ";
         cin >> ioDir;
-        ifstream test(ioDir + "\\input\\imem.txt");
+        ifstream test(ioDir + "\\imem.txt");
     if (!test.is_open()) {
         cout << "Cannot open imem.txt file! Please check if path is correct." << endl;
+        cout << "Input directory: " << ioDir << endl;
         return -1;
 }
+
+
 test.close();
     }
     else if (argc > 2) {
