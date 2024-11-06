@@ -1,1 +1,2 @@
-# RISC-V
+# RISC-V Emulator
+This is a cycle accurate RISC-V RV32I simulator built in C++. Its primary objective is to load up binary inputs and spit an output with changes in register files and log performance metrics. This is project simply for learning purposes, (mine and anyone else who wishes to use this) and only has a single stage pipeline built into it. This will include the 5 stage pipeline in the future as well.
