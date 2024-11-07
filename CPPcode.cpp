@@ -317,12 +317,18 @@ public:
 
         }
         else if (funct3 == 0b110) {  // OR
-            result = rs1_val | rs2_val;
-        }
+                result = rs1_val | rs2_val;
+                cout << "OR result: " << result << endl;
+            }
         else if (funct3 == 0b111) {  // AND
-            result = rs1_val & rs2_val;
+                result = rs1_val & rs2_val;
+                cout << "AND result: " << result << endl;
+            }
+        else if (funct3 == 0b100) {  // XOR
+                result = rs1_val ^ rs2_val;
+                cout << "XOR result: " << result << endl;
+            }
         }
-    }
     // Load instructions
     else if (opcode == 0b0000011) {
         if (funct3 == 0b010) {  // LW
@@ -333,7 +339,55 @@ public:
             result = ext_dmem.readDataMem(bitset<32>(addr));
             write_reg = true;
         }
+        else if (funct3 == 0b000) {  // LB
+            int32_t imm = ((instr >> 20) & 0xFFF);
+        // Sign extend immediate
+            if (imm & 0x800) imm |= 0xFFFFF000;
+            uint32_t addr = rs1_val.to_ulong() + imm;
+        
+        // Read the full word from memory
+            bitset<32> word = ext_dmem.readDataMem(bitset<32>(addr));
+        
+        // Extract the byte based on the address
+            int byte_offset = addr & 0x3;  // Get last 2 bits for byte position
+            uint8_t byte = (word.to_ulong() >> (byte_offset * 8)) & 0xFF;
+        
+        // Sign extend the byte to 32 bits
+            int32_t signed_byte = static_cast<int8_t>(byte);
+            result = bitset<32>(signed_byte);
+        
+            write_reg = true;
     }
+    }
+
+    else if (opcode == 0b0010011) {
+            write_reg = true;
+            // Extract and sign-extend immediate
+            int32_t imm = ((instr >> 20) & 0xFFF);
+            // Sign extend if negative
+            if (imm & 0x800) imm |= 0xFFFFF000;
+            
+            bitset<32> imm_val(imm);
+            cout << "I-type immediate value: " << imm_val << endl;
+
+            if (funct3 == 0b000) {  // ADDI
+                result = bitset<32>(rs1_val.to_ulong() + imm);
+                cout << "ADDI result: " << result << endl;
+            }
+            else if (funct3 == 0b100) {  // XORI
+                result = rs1_val ^ imm_val;
+                cout << "XORI result: " << result << endl;
+            }
+            else if (funct3 == 0b110) {  // ORI
+                result = rs1_val | imm_val;
+                cout << "ORI result: " << result << endl;
+            }
+            else if (funct3 == 0b111) {  // ANDI
+                result = rs1_val & imm_val;
+                cout << "ANDI result: " << result << endl;
+            }
+        }
+
     // Store instructions
     else if (opcode == 0b0100011) {
         if (funct3 == 0b010) {  // SW
@@ -409,7 +463,7 @@ class FiveStageCore : public Core{
 		FiveStageCore(string ioDir, InsMem &imem, DataMem &dmem): Core(ioDir, "FS_", imem, dmem), opFilePath(ioDir + "StateResult_FS.txt") {}
 
 		void step() {
-			/* Your implementation */
+			
 			/* --------------------- WB stage --------------------- */
 			
 			
