@@ -5,9 +5,8 @@ This is a cycle accurate RISC-V RV32I simulator built in C++. Its primary object
 In the terminal, you only have to provide the file path for the specified C++ file
 
 ```
-PS D:\code> g++ CPPcode.cpp -o run.exe
-PS D:\code> .\run.exe
-Enter path containing the memory files: D:\code
+.\run.exe
+Enter path containing the memory files: <filepath>
 ```
 This will generate all output files in the same location. Make sure your imem.txt and dmem.txt files are in the same location as the cpp file
 
