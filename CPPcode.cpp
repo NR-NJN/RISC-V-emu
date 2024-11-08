@@ -299,6 +299,8 @@ public:
     /* -------- EX stage -------- */
     bitset<32> result;
     bool write_reg = false;
+    bool branch_taken = false;
+    uint32_t next_pc = state.IF.PC.to_ulong() + 4;
 
     // R-type instructions
     if (opcode == 0b0110011) {
@@ -329,6 +331,49 @@ public:
                 cout << "XOR result: " << result << endl;
             }
         }
+
+    if (opcode == 0b1100011) {
+            int32_t imm = ((instr >> 31) & 0x1) << 12;  // imm[12]
+            imm |= ((instr >> 7) & 0x1) << 11;          // imm[11]
+            imm |= ((instr >> 25) & 0x3F) << 5;         // imm[10:5]
+            imm |= ((instr >> 8) & 0xF) << 1;           // imm[4:1]
+            
+            // Sign extend
+            if (imm & 0x1000) imm |= 0xFFFFE000;
+            
+            if (funct3 == 0b000) {  // BEQ
+                if (rs1_val == rs2_val) {
+                    next_pc = state.IF.PC.to_ulong() + imm;
+                    branch_taken = true;
+                }
+            }
+            else if (funct3 == 0b001) {  // BNE
+                if (rs1_val != rs2_val) {
+                    next_pc = state.IF.PC.to_ulong() + imm;
+                    branch_taken = true;
+                }
+            }
+        }
+        // JAL instruction
+        else if (opcode == 0b1101111) {  // JAL
+            // Calculate immediate for JAL
+            int32_t imm = ((instr >> 31) & 0x1) << 20;  // imm[20]
+            imm |= ((instr >> 12) & 0xFF) << 12;        // imm[19:12]
+            imm |= ((instr >> 20) & 0x1) << 11;         // imm[11]
+            imm |= ((instr >> 21) & 0x3FF) << 1;        // imm[10:1]
+            
+            // Sign extend
+            if (imm & 0x100000) imm |= 0xFFE00000;
+            
+            // Store return address (PC + 4)
+            result = bitset<32>(state.IF.PC.to_ulong() + 4);
+            write_reg = true;
+            
+            // Calculate target address
+            next_pc = state.IF.PC.to_ulong() + imm;
+            branch_taken = true;
+        }
+
     // Load instructions
     else if (opcode == 0b0000011) {
         if (funct3 == 0b010) {  // LW
@@ -405,7 +450,7 @@ public:
     }
 
     /* -------- PC Update -------- */
-    state.IF.PC = bitset<32>(state.IF.PC.to_ulong() + 4);
+    state.IF.PC = bitset<32>(next_pc);
 
     /* -------- State Update -------- */
     myRF.outputRF(cycle);
