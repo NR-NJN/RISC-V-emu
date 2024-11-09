@@ -28,3 +28,20 @@ HALT
 ```
 Modify the imem file accordingly with respect to the instructions you want to load, into the simulator.<br>
 The final 32 bits represent a HALT, which toggles a flip-flop into breaking up the instruction cycle.
+
+# Ouput(example)
+
+This only shows the RFRegister file, which is the most visible and important output file
+
+![image](https://github.com/user-attachments/assets/626f028f-ab21-4a01-a02e-64c2def5b337)
+
+Shows the final state of the register file with all modified registers when the code has completed execution
+
+# Performance
+Tracks the performance of the processor
+
+![image](https://github.com/user-attachments/assets/fc56f136-1e9c-493f-ac19-ce08e729c0c7)
+
+
+
+
