@@ -8,7 +8,7 @@
 
 using namespace std;
 
-#define MemSize 1000 // memory size, in reality, the memory size should be 2^32, but for this lab, for the space resaon, we keep it as this large number, but the memory is still 32-bit addressable.
+#define MemSize 1000 
 
 struct IFStruct {
     bitset<32>  PC;
@@ -23,6 +23,7 @@ struct IDStruct {
 struct EXStruct {
     bitset<32>  Read_data1;
     bitset<32>  Read_data2;
+    bitset<32>  ALUresult;
     bitset<16>  Imm;
     bitset<5>   Rs;
     bitset<5>   Rt;
@@ -274,6 +275,14 @@ public:
         return;
     }
 
+    if (state.ID.Instr.to_ulong() == 0x00000013) {  // NOP instruction
+        cout << "NOP instruction detected. Skipping this cycle." << endl;
+        state.IF.PC = state.IF.PC.to_ulong() + 4;  // Advance PC by 4 bytes
+        printState(state, cycle);
+        cycle++;
+        return;
+    }
+
     numInstructions++;
 
     /* -------- ID stage -------- */
@@ -333,10 +342,10 @@ public:
         }
 
     if (opcode == 0b1100011) {
-            int32_t imm = ((instr >> 31) & 0x1) << 12;  // imm[12]
-            imm |= ((instr >> 7) & 0x1) << 11;          // imm[11]
-            imm |= ((instr >> 25) & 0x3F) << 5;         // imm[10:5]
-            imm |= ((instr >> 8) & 0xF) << 1;           // imm[4:1]
+            int32_t imm = ((instr >> 31) & 0x1) << 12;  
+            imm |= ((instr >> 7) & 0x1) << 11;          
+            imm |= ((instr >> 25) & 0x3F) << 5;         
+            imm |= ((instr >> 8) & 0xF) << 1;           
             
             // Sign extend
             if (imm & 0x1000) imm |= 0xFFFFE000;
@@ -357,10 +366,10 @@ public:
         // JAL instruction
         else if (opcode == 0b1101111) {  // JAL
             // Calculate immediate for JAL
-            int32_t imm = ((instr >> 31) & 0x1) << 20;  // imm[20]
-            imm |= ((instr >> 12) & 0xFF) << 12;        // imm[19:12]
-            imm |= ((instr >> 20) & 0x1) << 11;         // imm[11]
-            imm |= ((instr >> 21) & 0x3FF) << 1;        // imm[10:1]
+            int32_t imm = ((instr >> 31) & 0x1) << 20;  
+            imm |= ((instr >> 12) & 0xFF) << 12;        
+            imm |= ((instr >> 20) & 0x1) << 11;         
+            imm |= ((instr >> 21) & 0x3FF) << 1;        
             
             // Sign extend
             if (imm & 0x100000) imm |= 0xFFE00000;
@@ -405,6 +414,8 @@ public:
     }
     }
 
+  
+
     else if (opcode == 0b0010011) {
             write_reg = true;
             // Extract and sign-extend immediate
@@ -443,6 +454,23 @@ public:
             ext_dmem.writeDataMem(bitset<32>(addr), rs2_val);
         }
     }
+
+    if (state.EX.wrt_mem) {
+            ext_dmem.writeDataMem(state.EX.ALUresult, state.EX.Read_data2);
+            cout << "Writing memory at address: " << state.EX.ALUresult.to_ulong() << endl;
+        }
+        if (state.EX.rd_mem) {
+            state.MEM.ALUresult = ext_dmem.readDataMem(state.EX.ALUresult);
+            cout << "Reading memory at address: " << state.EX.ALUresult.to_ulong() << endl;
+            state.MEM.Store_data = state.EX.Read_data2;
+            state.MEM.Rs = state.EX.Rs;
+            state.MEM.Rt = state.EX.Rt;
+            state.MEM.Wrt_reg_addr = state.EX.Wrt_reg_addr;
+            state.MEM.rd_mem = state.EX.rd_mem;
+            state.MEM.wrt_mem = state.EX.wrt_mem;
+            state.MEM.wrt_enable = state.EX.wrt_enable;
+            state.MEM.nop = state.EX.nop;
+        } 
 
     /* -------- WB stage -------- */
     if (write_reg && rd.to_ulong() != 0) {
