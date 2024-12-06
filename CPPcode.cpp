@@ -537,24 +537,200 @@ class FiveStageCore : public Core{
 
 		void step() {
 			
-			/* --------------------- WB stage --------------------- */
-			
-			
-			
-			/* --------------------- MEM stage -------------------- */
-			
-			
-			
-			/* --------------------- EX stage --------------------- */
-			
-			
-			
-			/* --------------------- ID stage --------------------- */
-			
-			
-			
-			/* --------------------- IF stage --------------------- */
-			
+			static int numCycles = 0;
+    static int numInstructions = 0;
+
+    // Halt check
+    if (state.IF.nop && state.ID.nop && state.EX.nop && state.MEM.nop && state.WB.nop) {
+        halted = true;
+        return;
+    }
+
+    // Initialize the nextState structure
+    nextState = state;
+
+    /* --------------------- WB stage --------------------- */
+    if (!state.WB.nop) {
+        // Write back to register file if write is enabled
+        if (state.WB.wrt_enable && state.WB.Wrt_reg_addr.to_ulong() != 0) {
+            myRF.writeRF(state.WB.Wrt_reg_addr, state.WB.Wrt_data);
+            cout << "WB: Writing " << state.WB.Wrt_data.to_ulong() 
+                 << " to register " << state.WB.Wrt_reg_addr.to_ulong() << endl;
+        }
+    }
+
+    /* --------------------- MEM stage -------------------- */
+    if (!state.MEM.nop) {
+        // Memory read operation (LW)
+        if (state.MEM.rd_mem) {
+            nextState.WB.Wrt_data = ext_dmem.readDataMem(state.MEM.ALUresult);
+            nextState.WB.Wrt_reg_addr = state.MEM.Wrt_reg_addr;
+            nextState.WB.wrt_enable = state.MEM.wrt_enable;
+            cout << "MEM: Reading " << nextState.WB.Wrt_data.to_ulong() 
+                 << " from address " << state.MEM.ALUresult.to_ulong() << endl;
+        }
+        
+        // Memory write operation (SW)
+        if (state.MEM.wrt_mem) {
+            ext_dmem.writeDataMem(state.MEM.ALUresult, state.MEM.Store_data);
+            cout << "MEM: Writing " << state.MEM.Store_data.to_ulong() 
+                 << " to address " << state.MEM.ALUresult.to_ulong() << endl;
+        }
+
+        // Prepare WB stage data
+        if (!state.MEM.rd_mem) {
+            nextState.WB.Wrt_data = state.MEM.ALUresult;
+            nextState.WB.Wrt_reg_addr = state.MEM.Wrt_reg_addr;
+            nextState.WB.wrt_enable = state.MEM.wrt_enable;
+        }
+
+        // Set WB stage NOP
+        nextState.WB.nop = state.MEM.nop;
+        nextState.WB.Rs = state.MEM.Rs;
+        nextState.WB.Rt = state.MEM.Rt;
+    }
+
+    /* --------------------- EX stage --------------------- */
+    if (!state.EX.nop) {
+        bitset<32> ALUresult;
+        
+        // R-type ALU operations
+        if (!state.EX.is_I_type) {
+            uint32_t rs1_val = state.EX.Read_data1.to_ulong();
+            uint32_t rs2_val = state.EX.Read_data2.to_ulong();
+
+            if (state.EX.alu_op) {  // ADDU
+                ALUresult = bitset<32>(rs1_val + rs2_val);
+            } else {  // SUBU
+                ALUresult = bitset<32>(rs1_val - rs2_val);
+            }
+        }
+        // I-type ALU operations
+        else {
+            uint32_t rs1_val = state.EX.Read_data1.to_ulong();
+            int32_t imm = state.EX.Imm.to_ulong();
+            
+            if (state.EX.alu_op) {  // ADDI
+                ALUresult = bitset<32>(rs1_val + imm);
+            }
+        }
+
+        // Prepare MEM stage data
+        nextState.MEM.ALUresult = ALUresult;
+        nextState.MEM.Store_data = state.EX.Read_data2;
+        nextState.MEM.Rs = state.EX.Rs;
+        nextState.MEM.Rt = state.EX.Rt;
+        nextState.MEM.Wrt_reg_addr = state.EX.Wrt_reg_addr;
+        nextState.MEM.rd_mem = state.EX.rd_mem;
+        nextState.MEM.wrt_mem = state.EX.wrt_mem;
+        nextState.MEM.wrt_enable = state.EX.wrt_enable;
+        nextState.MEM.nop = state.EX.nop;
+
+        cout << "EX: ALU Result " << ALUresult.to_ulong() << endl;
+    }
+
+    /* --------------------- ID stage --------------------- */
+    if (!state.ID.nop) {
+        // Decode instruction
+        uint32_t instr = state.ID.Instr.to_ulong();
+        bitset<7> opcode(instr & 0x7F);
+        bitset<5> rd((instr >> 7) & 0x1F);
+        bitset<3> funct3((instr >> 12) & 0x7);
+        bitset<5> rs1((instr >> 15) & 0x1F);
+        bitset<5> rs2((instr >> 20) & 0x1F);
+        bitset<7> funct7((instr >> 25) & 0x7F);
+
+        // Read register values
+        bitset<32> rs1_val = myRF.readRF(rs1);
+        bitset<32> rs2_val = myRF.readRF(rs2);
+
+        // Prepare EX stage data
+        nextState.EX.Read_data1 = rs1_val;
+        nextState.EX.Read_data2 = rs2_val;
+        nextState.EX.Rs = rs1;
+        nextState.EX.Rt = rs2;
+        nextState.EX.Wrt_reg_addr = rd;
+
+        // Detect instruction type and set control signals
+        nextState.EX.is_I_type = false;
+        nextState.EX.rd_mem = false;
+        nextState.EX.wrt_mem = false;
+        nextState.EX.wrt_enable = false;
+
+        if (opcode == 0b0110011) {  // R-type
+            nextState.EX.alu_op = true;  // ADDU
+            nextState.EX.wrt_enable = true;
+            
+            if (funct3 == 0b000) {
+                if (funct7 == 0b0000000) {  // ADD
+                    nextState.EX.alu_op = true;
+                } else if (funct7 == 0b0100000) {  // SUB
+                    nextState.EX.alu_op = false;
+                }
+            }
+        }
+        else if (opcode == 0b0010011) {  // I-type
+            nextState.EX.is_I_type = true;
+            nextState.EX.alu_op = true;  // ADDI
+            nextState.EX.wrt_enable = true;
+            
+            // Sign extend immediate
+            int32_t imm = ((instr >> 20) & 0xFFF);
+            if (imm & 0x800) imm |= 0xFFFFF000;
+            nextState.EX.Imm = bitset<16>(imm & 0xFFFF);
+        }
+        else if (opcode == 0b0000011) {  // Load instructions
+            if (funct3 == 0b010) {  // LW
+                nextState.EX.is_I_type = true;
+                nextState.EX.rd_mem = true;
+                nextState.EX.alu_op = true;
+                nextState.EX.wrt_enable = true;
+                
+                // Sign extend immediate
+                int32_t imm = ((instr >> 20) & 0xFFF);
+                if (imm & 0x800) imm |= 0xFFFFF000;
+                nextState.EX.Imm = bitset<16>(imm & 0xFFFF);
+            }
+        }
+        else if (opcode == 0b0100011) {  // Store instructions
+            if (funct3 == 0b010) {  // SW
+                nextState.EX.is_I_type = true;
+                nextState.EX.wrt_mem = true;
+                nextState.EX.alu_op = true;
+                
+                // Sign extend immediate for store instruction
+                int32_t imm = ((instr >> 25) & 0xFE0) | ((instr >> 7) & 0x1F);
+                if (imm & 0x800) imm |= 0xFFFFF000;
+                nextState.EX.Imm = bitset<16>(imm & 0xFFFF);
+            }
+        }
+
+        nextState.EX.nop = state.ID.nop;
+    }
+
+    /* --------------------- IF stage --------------------- */
+    if (!state.IF.nop) {
+        // Fetch instruction
+        bitset<32> instr = ext_imem.readInstr(state.IF.PC);
+
+        // Check for halt condition
+        if (instr.to_ulong() == 0xFFFFFFFF) {
+            nextState.IF.nop = true;
+            nextState.ID.nop = true;
+            cout << "Halt instruction detected" << endl;
+        } else {
+            // Update ID stage
+            nextState.ID.Instr = instr;
+
+            // Increment PC
+            nextState.IF.PC = bitset<32>(state.IF.PC.to_ulong() + 4);
+            
+            numInstructions++;
+        }
+    }
+
+    // Performance tracking
+    numCycles++;
 			
 			halted = true;
 			if (state.IF.nop && state.ID.nop && state.EX.nop && state.MEM.nop && state.WB.nop)
